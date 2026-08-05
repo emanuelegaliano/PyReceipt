@@ -3,7 +3,7 @@
 
 External demonstration script to test PyReceipt OCR extraction, performance profiling,
 and regex parsing on sample dataset images in datasets/.
-Displays hardware specifications, stage-by-stage memory/execution metrics, and parsed results.
+Supports selecting OCR engine (--ocr tesseract|rapidocr) and language rules (--lang en|it).
 """
 
 import argparse
@@ -17,6 +17,7 @@ import tracemalloc
 from typing import Dict, Any
 
 from pyreceipt.adapters.tesseract_ocr import TesseractOCRAdapter
+from pyreceipt.adapters.paddle_ocr import RapidOCRAdapter
 from pyreceipt.core.parser import ReceiptParser
 
 
@@ -80,6 +81,13 @@ def main() -> None:
         help="Dataset directory to sample image from if --image is omitted.",
     )
     parser.add_argument(
+        "--ocr",
+        type=str,
+        choices=["tesseract", "rapidocr"],
+        default="tesseract",
+        help="OCR engine adapter to use (default: 'tesseract').",
+    )
+    parser.add_argument(
         "--lang",
         type=str,
         default="en",
@@ -118,25 +126,30 @@ def main() -> None:
     print(f"  Total RAM    : {hw_info['ram_gb']}")
     print("-" * 65)
     print(f" Target Image  : {image_path}")
+    print(f" OCR Engine    : {args.ocr}")
     print(f" Parser Lang   : {args.lang}")
     print("=" * 65)
 
     # Initialize Adapter and Parser
-    tess_lang = "eng" if args.lang == "en" else args.lang
-    ocr_adapter = TesseractOCRAdapter(lang=tess_lang)
+    if args.ocr == "rapidocr":
+        ocr_adapter = RapidOCRAdapter()
+    else:
+        tess_lang = "eng" if args.lang == "en" else args.lang
+        ocr_adapter = TesseractOCRAdapter(lang=tess_lang)
+
     receipt_parser = ReceiptParser(lang_code=args.lang)
 
     # Start Overall Tracemalloc & Timer
     tracemalloc.start()
     start_overall = time.perf_counter()
 
-    # --- Step 1: Tesseract OCR ---
+    # --- Step 1: OCR ---
     tracemalloc.reset_peak()
-    start_tess = time.perf_counter()
+    start_ocr = time.perf_counter()
     raw_text = ocr_adapter.extract_text(image_path)
-    tess_time = time.perf_counter() - start_tess
-    _, tess_peak = tracemalloc.get_traced_memory()
-    tess_peak_mb = tess_peak / (1024 * 1024)
+    ocr_time = time.perf_counter() - start_ocr
+    _, ocr_peak = tracemalloc.get_traced_memory()
+    ocr_peak_mb = ocr_peak / (1024 * 1024)
 
     # --- Step 2: Regex Parser ---
     tracemalloc.reset_peak()
@@ -152,10 +165,12 @@ def main() -> None:
     overall_peak_mb = overall_peak / (1024 * 1024)
     tracemalloc.stop()
 
+    ocr_name = "RapidOCR (ONNX)" if args.ocr == "rapidocr" else "Tesseract OCR"
+
     print("\n [PERFORMANCE METRICS BREAKDOWN]")
     print(f" {'Stage':<22} | {'Time (s)':<14} | {'Peak RAM (MB)':<15}")
     print(" " + "-" * 22 + "-+-" + "-" * 14 + "-+-" + "-" * 15)
-    print(f" 1. Tesseract OCR       | {tess_time:12.4f} s | {tess_peak_mb:13.2f} MB")
+    print(f" 1. {ocr_name:<19} | {ocr_time:12.4f} s | {ocr_peak_mb:13.2f} MB")
     print(f" 2. Regex Parser        | {parse_time:12.4f} s | {parse_peak_mb:13.2f} MB")
     print(" " + "-" * 22 + "-+-" + "-" * 14 + "-+-" + "-" * 15)
     print(

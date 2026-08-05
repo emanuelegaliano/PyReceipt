@@ -80,6 +80,38 @@ class TestRegexReceiptParser(unittest.TestCase):
         self.assertEqual(receipt.total, 0.0)
         self.assertEqual(receipt.category, ExpenseCategory.OTHER)
 
+    def test_parse_ocr_spaces_and_commas(self) -> None:
+        """Verify parsing of money strings with OCR spaces and comma separators."""
+        raw_text = """
+        ITALIAN CAFE
+        25.12.2023
+        Espresso 1.20
+        Panino 4.80
+        TOTALE : 15 , 50
+        """
+        parser = RegexReceiptParser(lang_code="it")
+        receipt = parser.parse(raw_text)
+
+        self.assertEqual(receipt.date, "25.12.2023")
+        self.assertEqual(receipt.total, 15.50)
+
+    def test_greedy_total_fallback_max_float(self) -> None:
+        """Verify greedy fallback returns largest float when total keyword is missing."""
+        raw_text = """
+        RESTAURANT BARKLEY
+        2024-11-15
+        Item 1 12.00
+        Item 2 45.00
+        Item 3 99.95
+        Random Code 00123
+        """
+        parser = RegexReceiptParser(lang_code="en")
+        receipt = parser.parse(raw_text)
+
+        self.assertEqual(receipt.company, "RESTAURANT BARKLEY")
+        self.assertEqual(receipt.date, "2024-11-15")
+        self.assertEqual(receipt.total, 99.95)
+
 
 if __name__ == "__main__":
     unittest.main()

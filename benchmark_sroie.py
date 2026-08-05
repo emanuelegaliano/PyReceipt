@@ -2,7 +2,7 @@
 """PyReceipt Benchmark Suite for SROIE2019 Dataset.
 
 Evaluates accuracy and hardware performance pre-regex (ground-truth OCR text)
-and post-regex (end-to-end Tesseract OCR + Regex parser on images).
+and post-regex (end-to-end RapidOCR or Tesseract OCR + Regex parser on images).
 """
 
 import argparse
@@ -16,6 +16,7 @@ import tracemalloc
 from typing import Dict, List, Any, Optional
 
 from pyreceipt.adapters.tesseract_ocr import TesseractOCRAdapter
+from pyreceipt.adapters.paddle_ocr import RapidOCRAdapter
 from pyreceipt.core.parser import RegexReceiptParser
 
 
@@ -100,6 +101,13 @@ def main() -> None:
         help="Maximum number of sample receipts to evaluate (default: 30)",
     )
     parser.add_argument(
+        "--ocr",
+        type=str,
+        choices=["tesseract", "rapidocr"],
+        default="tesseract",
+        help="OCR engine adapter to evaluate (default: 'tesseract')",
+    )
+    parser.add_argument(
         "--lang",
         type=str,
         default="en",
@@ -130,12 +138,17 @@ def main() -> None:
     print("=" * 65)
     print(f" Dataset Path    : {dataset_path}")
     print(f" Target Samples  : {total_samples}")
+    print(f" OCR Engine      : {args.ocr}")
     print(f" Parser Lang     : {args.lang}")
     print("=" * 65)
 
     # Initialize components
-    tess_lang = "eng" if args.lang == "en" else args.lang
-    ocr_adapter = TesseractOCRAdapter(lang=tess_lang)
+    if args.ocr == "rapidocr":
+        ocr_adapter = RapidOCRAdapter()
+    else:
+        tess_lang = "eng" if args.lang == "en" else args.lang
+        ocr_adapter = TesseractOCRAdapter(lang=tess_lang)
+
     receipt_parser = RegexReceiptParser(lang_code=args.lang)
 
     # Telemetry tracking variables
@@ -216,6 +229,8 @@ def main() -> None:
     avg_regex_time = sum(regex_times) / len(regex_times) if regex_times else 0.0
     avg_regex_peak = sum(regex_peaks) / len(regex_peaks) if regex_peaks else 0.0
 
+    ocr_label = "RapidOCR (ONNX) Stage" if args.ocr == "rapidocr" else "Tesseract OCR Stage"
+
     print("\n [1. ACCURACY EVALUATION]")
     print(f" {'Evaluation Stage':<25} | {'Total Acc (%)':<15} | {'Date Acc (%)':<15}")
     print(" " + "-" * 25 + "-+-" + "-" * 15 + "-+-" + "-" * 15)
@@ -226,7 +241,7 @@ def main() -> None:
     print("\n [2. HARDWARE PERFORMANCE TELEMETRY]")
     print(f" {'Stage':<25} | {'Avg Time (s)':<15} | {'Avg Peak RAM (MB)':<17}")
     print(" " + "-" * 25 + "-+-" + "-" * 15 + "-+-" + "-" * 17)
-    print(f" Tesseract OCR Stage       | {avg_ocr_time:13.4f} s | {avg_ocr_peak:15.2f} MB")
+    print(f" {ocr_label:<25} | {avg_ocr_time:13.4f} s | {avg_ocr_peak:15.2f} MB")
     print(f" Regex Parser Stage        | {avg_regex_time:13.4f} s | {avg_regex_peak:15.2f} MB")
     print(" " + "-" * 25 + "-+-" + "-" * 15 + "-+-" + "-" * 17)
     total_avg_time = avg_ocr_time + avg_regex_time
