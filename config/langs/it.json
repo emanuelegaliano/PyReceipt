@@ -1,0 +1,30 @@
+{
+  "language": "it",
+  "name": "Italian",
+  "total_anchors": [
+    "TOTALE COMPLESSIVO",
+    "TOTALE EURO",
+    "TOTALE €",
+    "TOTALE",
+    "TOT\\.",
+    "IMPORTO COMPLESSIVO",
+    "IMPORTO NETTO",
+    "IMPORTO"
+  ],
+  "exclude_anchors": [
+    "SUBTOTAL",
+    "SUB TOTAL",
+    "SUB-TOTAL",
+    "PARZIALE",
+    "CONTANTE",
+    "RESTO",
+    "RIEPILOGO"
+  ],
+  "currency_symbols": [
+    "€",
+    "EUR"
+  ],
+  "date_patterns": [
+    "\\b(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})\\b"
+  ]
+}

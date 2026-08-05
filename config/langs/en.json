@@ -1,0 +1,28 @@
+{
+  "language": "en",
+  "name": "English",
+  "total_anchors": [
+    "TOTAL DUE",
+    "BALANCE DUE",
+    "AMOUNT DUE",
+    "TOTAL",
+    "NET AMOUNT"
+  ],
+  "exclude_anchors": [
+    "SUBTOTAL",
+    "SUB TOTAL",
+    "SUB-TOTAL",
+    "TAX",
+    "CHANGE",
+    "CASH"
+  ],
+  "currency_symbols": [
+    "$",
+    "USD",
+    "£",
+    "GBP"
+  ],
+  "date_patterns": [
+    "\\b(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})\\b"
+  ]
+}
