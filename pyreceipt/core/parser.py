@@ -50,14 +50,15 @@ class RegexReceiptParser:
         """
         possible_paths: List[Path] = []
 
+        # 1. Custom config_dir if passed
         if config_dir:
             possible_paths.append(Path(config_dir) / f"{self.lang_code}.json")
 
-        # Package relative path: pyreceipt/config/langs/{lang_code}.json
-        pkg_root = Path(__file__).resolve().parent.parent
-        possible_paths.append(pkg_root / "config" / "langs" / f"{self.lang_code}.json")
+        # 2. Project root path: config/langs/{lang_code}.json
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        possible_paths.append(root_dir / "config" / "langs" / f"{self.lang_code}.json")
 
-        # Project root path: ./config/langs/{lang_code}.json
+        # 3. Current working directory fallback: ./config/langs/{lang_code}.json
         possible_paths.append(Path.cwd() / "config" / "langs" / f"{self.lang_code}.json")
 
         json_path: Optional[Path] = None
