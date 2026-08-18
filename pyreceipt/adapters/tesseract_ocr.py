@@ -6,10 +6,11 @@ configurable Page Segmentation Modes (PSM) and custom tessdata models (e.g. tess
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 import pytesseract
+from pytesseract import Output
 
 from pyreceipt.core.ports import OCRPort
 from pyreceipt.utils.profiler import monitor_performance
@@ -24,13 +25,7 @@ class TesseractOCRAdapter(OCRPort):
         config: str = "--psm 4",
         tessdata_dir: Optional[str] = None,
     ) -> None:
-        """Initialize TesseractOCRAdapter with language code, PSM config, and tessdata path.
-
-        Args:
-            lang: Language code for Tesseract (default: 'eng').
-            config: Tesseract configuration flags (default: '--psm 4').
-            tessdata_dir: Optional custom directory containing traineddata models (e.g. tessdata_best).
-        """
+        """Initialize TesseractOCRAdapter with language code, PSM config, and tessdata path."""
         self.lang = lang
         self.tessdata_dir = self._resolve_tessdata_dir(tessdata_dir)
 
@@ -41,18 +36,9 @@ class TesseractOCRAdapter(OCRPort):
         self.config = full_config
 
     def _resolve_tessdata_dir(self, custom_dir: Optional[str]) -> Optional[str]:
-        """Resolve path to tessdata directory.
-
-        Args:
-            custom_dir: Custom path passed by caller.
-
-        Returns:
-            Resolved absolute directory path string or None.
-        """
         if custom_dir and os.path.isdir(custom_dir):
             return os.path.abspath(custom_dir)
 
-        # Check local tessdata_best directory in project root
         root_tessbest = Path.cwd() / "tessdata_best"
         if root_tessbest.is_dir():
             return str(root_tessbest.resolve())
@@ -63,53 +49,70 @@ class TesseractOCRAdapter(OCRPort):
 
         return None
 
+    def _preprocess_image(self, image_path: str) -> Optional[np.ndarray]:
+        if not os.path.exists(image_path):
+            return None
+        img: Optional[np.ndarray] = cv2.imread(image_path)
+        if img is None:
+            return None
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced_gray = clahe.apply(gray)
+        height, width = enhanced_gray.shape[:2]
+        max_dim = max(height, width)
+        if max_dim > 1800:
+            scale = 1800.0 / max_dim
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            enhanced_gray = cv2.resize(
+                enhanced_gray,
+                (new_width, new_height),
+                interpolation=cv2.INTER_AREA,
+            )
+        return enhanced_gray
+
     @monitor_performance
     def extract_text(self, image_path: str) -> str:
-        """Extract raw text from receipt image using CLAHE contrast enhancement.
-
-        Hardware Constraint: Reads image, converts to grayscale, applies CLAHE
-        (clipLimit=2.0, tileGridSize=(8, 8)) for contrast enhancement, and resizes
-        longest edge to max 1800px (preserving aspect ratio). Passes enhanced grayscale
-        image to Tesseract using specified traineddata model directory.
-
-        Args:
-            image_path: Absolute or relative file path to the receipt image.
-
-        Returns:
-            Extracted raw text string from the image, or empty string if error occurs.
-        """
-        if not os.path.exists(image_path):
-            return ""
-
+        """Extract raw text from receipt image."""
         try:
-            img: Optional[np.ndarray] = cv2.imread(image_path)
-            if img is None:
+            enhanced_gray = self._preprocess_image(image_path)
+            if enhanced_gray is None:
                 return ""
-
-            # 1. Convert to grayscale
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-            # 2. Apply CLAHE contrast enhancement
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            enhanced_gray = clahe.apply(gray)
-
-            # 3. Dynamic resizing for 1GB RAM constraint (max edge 1800px)
-            height, width = enhanced_gray.shape[:2]
-            max_dim = max(height, width)
-            if max_dim > 1800:
-                scale = 1800.0 / max_dim
-                new_width = int(width * scale)
-                new_height = int(height * scale)
-                enhanced_gray = cv2.resize(
-                    enhanced_gray,
-                    (new_width, new_height),
-                    interpolation=cv2.INTER_AREA,
-                )
-
-            # 4. Pass preprocessed image to pytesseract
             text: str = pytesseract.image_to_string(
                 enhanced_gray, lang=self.lang, config=self.config
             )
             return text.strip()
         except Exception:
             return ""
+
+    def extract_boxes(self, image_path: str) -> List[Dict[str, Any]]:
+        """Extract word-level bounding boxes with coordinates."""
+        try:
+            enhanced_gray = self._preprocess_image(image_path)
+            if enhanced_gray is None:
+                return []
+            data = pytesseract.image_to_data(
+                enhanced_gray,
+                lang=self.lang,
+                config=self.config,
+                output_type=Output.DICT,
+            )
+            boxes: List[Dict[str, Any]] = []
+            n_boxes = len(data["text"])
+            for i in range(n_boxes):
+                text = str(data["text"][i]).strip()
+                if not text:
+                    continue
+                x = int(data["left"][i])
+                y = int(data["top"][i])
+                w = int(data["width"][i])
+                h = int(data["height"][i])
+                conf = float(data["conf"][i]) if str(data["conf"][i]) != "-1" else 0.0
+                boxes.append({
+                    "text": text,
+                    "box": [x, y, x + w, y + h],
+                    "conf": conf,
+                })
+            return boxes
+        except Exception:
+            return []

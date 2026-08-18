@@ -1,40 +1,45 @@
-"""RapidOCR (PaddleOCR ONNX) Adapter implementation for PyReceipt."""
+"""EasyOCR Adapter implementation for PyReceipt."""
 
 import os
 from typing import Any, Dict, List, Optional
-from rapidocr_onnxruntime import RapidOCR
 
 from pyreceipt.core.ports import OCRPort
 from pyreceipt.utils.profiler import monitor_performance
 
 
-class RapidOCRAdapter(OCRPort):
-    """Concrete RapidOCR Adapter implementing OCRPort interface."""
+class EasyOCRAdapter(OCRPort):
+    """Concrete EasyOCR Adapter implementing OCRPort interface."""
 
-    def __init__(self) -> None:
-        """Initialize RapidOCRAdapter and load ONNX models into memory once."""
-        self.engine = RapidOCR()
+    def __init__(
+        self,
+        lang_list: Optional[List[str]] = None,
+        gpu: bool = True,
+    ) -> None:
+        """Initialize EasyOCRAdapter and load reader model into memory once."""
+        import easyocr
+
+        self.langs = lang_list if lang_list is not None else ["en"]
+        self.reader = easyocr.Reader(self.langs, gpu=gpu)
 
     @monitor_performance
     def extract_text(self, image_path: str) -> str:
-        """Extract raw text from receipt image using RapidOCR engine."""
+        """Extract raw text lines from receipt image using EasyOCR engine."""
         boxes = self.extract_boxes(image_path)
         return "\n".join(b["text"] for b in boxes)
 
     def extract_boxes(self, image_path: str) -> List[Dict[str, Any]]:
-        """Extract bounding boxes with text and coordinates using RapidOCR engine."""
+        """Extract bounding boxes with text and coordinates using EasyOCR engine."""
         if not os.path.exists(image_path):
             return []
 
         try:
-            result, _ = self.engine(image_path)
-            if not result:
+            results = self.reader.readtext(image_path, detail=1, paragraph=False)
+            if not results:
                 return []
 
             boxes: List[Dict[str, Any]] = []
-            for item in result:
-                # item structure: [bbox, text, confidence]
-                if item and len(item) >= 2:
+            for item in results:
+                if len(item) >= 2:
                     text_content = str(item[1]).strip()
                     if text_content:
                         poly = item[0]
