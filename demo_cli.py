@@ -257,7 +257,7 @@ def main() -> None:
         tracemalloc.reset_peak()
         start_parse = time.perf_counter()
         if args.parser == "spatial2d":
-            spatial_parser = Spatial2DBoxParser()
+            spatial_parser = Spatial2DBoxParser(lang_code=args.lang)
             receipt = spatial_parser.parse(boxes)
         else:
             regex_parser = ReceiptParser(lang_code=args.lang)

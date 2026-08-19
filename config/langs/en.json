@@ -24,5 +24,55 @@
   ],
   "date_patterns": [
     "\\b(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})\\b"
+  ],
+  "cash_keywords": [
+    "CASH",
+    "TUNAI",
+    "CASH TENDERED",
+    "TENDERED",
+    "BAYAR",
+    "CASH RECEIVED",
+    "PAID",
+    "TENDER"
+  ],
+  "change_keywords": [
+    "CHANGE",
+    "BAKI",
+    "KEMBALI",
+    "BALANCE RETURN",
+    "CHANGE DUE"
+  ],
+  "tax_keywords": [
+    "TAX TOTAL",
+    "GST TOTAL",
+    "TOTAL TAX",
+    "TOTAL GST",
+    "TAX AMOUNT",
+    "GST AMOUNT",
+    "GST (6%)",
+    "SR @",
+    "ZR @",
+    "SR@",
+    "ZR@",
+    "GST SUMMARY",
+    "TAX (RM)",
+    "TAX INVOICE",
+    "GST REG",
+    "SERVICE TAX",
+    "TAXABLE AMOUNT",
+    "EXCLUDING GST",
+    "EXCL GST",
+    "AMOUNT (EXCL",
+    "GSTANALYSIS",
+    "GST ANALYSIS",
+    "TAX/AMT",
+    "TAXABLE"
+  ],
+  "subtotal_keywords": [
+    "SUBTOTAL",
+    "SUB-TOTAL",
+    "SUB TOTAL",
+    "AMOUNT EXCL",
+    "TAXABLE"
   ]
 }

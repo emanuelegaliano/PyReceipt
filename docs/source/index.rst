@@ -33,6 +33,7 @@ Key Highlights
 
    architecture
    usage
+   extending
 
 .. toctree::
    :maxdepth: 2

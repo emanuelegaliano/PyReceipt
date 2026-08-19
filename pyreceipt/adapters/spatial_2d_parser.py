@@ -1,10 +1,6 @@
-"""Spatial 2D Bounding Box Receipt Parser (Method 1: Geometric 2D Clustering & Ray-Casting).
-
-Reconstructs physical 2D rows from OCR bounding box coordinates (Y-overlap),
-performs horizontal ray-casting to right-align price columns, filters out
-tax/settlement/cash lines, and performs arithmetic cross-validation.
-"""
-
+import json
+import os
+from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -17,50 +13,59 @@ class Spatial2DBoxParser(ParserPort):
     """Geometric 2D Bounding Box Receipt Parser with Arithmetic Verification.
 
     Reconstructs reading order by clustering bounding boxes into physical horizontal
-    rows, applies fuzzy anchor matching, filters tax/settlement noise, and verifies
-    mathematical invariants (Cash - Change = Total).
+    rows, applies fuzzy anchor matching driven by JSON language configurations,
+    filters tax/settlement noise, and verifies mathematical invariants (Cash - Change = Total).
 
     Attributes:
+        lang_code (str): Two-letter ISO language code (e.g., 'en', 'it').
         y_tol (float): Vertical overlap tolerance ratio used to cluster boxes into physical lines.
+        config (Dict[str, Any]): Loaded language configuration dictionary.
     """
 
-    TOTAL_KEYWORD_REGEX = re.compile(
-        r"(?:[TO0][O0][TAFLI1][A4][LI1]|JUMLAH|GRAND\s*TOTAL|NETT?\s*TOTAL|AMOUNT\s*DUE|AMOUNT\s*PAYABLE|BALANCE\s*DUE|TOTAL\s*ROUNDED|TOTAL\s*INCL|TOTAL\s*RM|TOTAL\s*AMOUNT|TOTAL\s*SALES|TOTAL\s*PAYABLE|TOTAL\s*BILL|RINGKASAN|TOTAL\s*PAID|TOTAL\s*PRICE)",
-        re.IGNORECASE,
-    )
+    # Default fallback keywords
+    DEFAULT_TOTAL_ANCHORS = [
+        r"[TO0][O0][TAFLI1][A4][LI1]", "JUMLAH", "GRAND TOTAL", "NETT TOTAL", "NET TOTAL",
+        "AMOUNT DUE", "AMOUNT PAYABLE", "BALANCE DUE", "TOTAL ROUNDED", "TOTAL INCL",
+        "TOTAL RM", "TOTAL AMOUNT", "TOTAL SALES", "TOTAL PAYABLE", "TOTAL BILL",
+        "RINGKASAN", "TOTAL PAID", "TOTAL PRICE", "TOTALE COMPLESSIVO", "TOTALE EURO",
+        "TOTALE €", "TOTALE", "IMPORTO COMPLESSIVO", "IMPORTO NETTO", "IMPORTO"
+    ]
 
-    TAX_EXCLUSION_KEYWORDS = [
+    DEFAULT_TAX_KEYWORDS = [
         "TAX TOTAL", "GST TOTAL", "TOTAL TAX", "TOTAL GST", "TAX AMOUNT", "GST AMOUNT",
         "GST (6%)", "SR @", "ZR @", "SR@", "ZR@", "GST SUMMARY", "TAX (RM)", "TAX INVOICE",
         "GST REG", "AMOUNT EXCL", "TOTAL EXCL", "TOTAL DISCOUNT", "TOTAL SAVINGS", "TOTAL SAVING",
         "TOTAL ITEM", "TOTAL ITEMS", "TOTAL QTY", "TOTAL PIECES", "TOTAL PCS", "TOTAL UNIT",
         "SUBTOTAL", "SUB-TOTAL", "SUB TOTAL", "SERVICE TAX", "TAXABLE AMOUNT", "EXCLUDING GST",
-        "EXCL GST", "AMOUNT (EXCL", "GSTANALYSIS", "GST ANALYSIS", "TAX/AMT", "TAXABLE"
+        "EXCL GST", "AMOUNT (EXCL", "GSTANALYSIS", "GST ANALYSIS", "TAX/AMT", "TAXABLE",
+        "DI CUI IVA", "IVA", "IMPOSTA", "ESENTE IVA"
     ]
 
-    PAYMENT_NEGATIVE_KEYWORDS = [
+    DEFAULT_PAYMENT_NEGATIVE = [
         "CASH", "TUNAI", "CHANGE", "BAKI", "KEMBALI", "ROUNDING", "ROUNDED ADJ",
         "ROUNDING ADJ", "VISA", "MASTER", "CREDIT CARD", "DEBIT CARD", "CARD NO",
-        "APPROVAL", "TEL", "FAX", "MEMBER", "POINTS", "VOUCHER", "DISCOUNT"
+        "APPROVAL", "TEL", "FAX", "MEMBER", "POINTS", "VOUCHER", "DISCOUNT",
+        "CONTANTE", "RESTO", "CARTE DI PAGAMENTO", "PAGAMENTO ELETTRONICO"
     ]
 
-    CASH_KEYWORDS = ["CASH", "TUNAI", "CASH TENDERED", "TENDERED", "BAYAR", "CASH RECEIVED", "PAID", "TENDER"]
-    CHANGE_KEYWORDS = ["CHANGE", "BAKI", "KEMBALI", "BALANCE RETURN", "CHANGE DUE"]
-    SUBTOTAL_KEYWORDS = ["SUBTOTAL", "SUB-TOTAL", "SUB TOTAL", "AMOUNT EXCL", "TAXABLE"]
-    TAX_KEYWORDS = ["GST", "TAX", "SST", "6%", "TAX AMOUNT", "GST AMOUNT", "SR @", "TAX/AMT"]
+    DEFAULT_CASH_KEYWORDS = [
+        "CASH", "TUNAI", "CASH TENDERED", "TENDERED", "BAYAR", "CASH RECEIVED",
+        "PAID", "TENDER", "CONTANTE", "CONTANTI", "PAGAMENTO CONTANTE", "PAGAMENTO CONTANTI"
+    ]
+    DEFAULT_CHANGE_KEYWORDS = [
+        "CHANGE", "BAKI", "KEMBALI", "BALANCE RETURN", "CHANGE DUE", "RESTO", "RESTO DOVUTO"
+    ]
+    DEFAULT_SUBTOTAL_KEYWORDS = [
+        "SUBTOTAL", "SUB-TOTAL", "SUB TOTAL", "AMOUNT EXCL", "TAXABLE",
+        "SUBTOTALE", "PARZIALE", "IMPONIBILE"
+    ]
 
-    DATE_PATTERNS = [
-        # Match DD/MM/YYYY or DD-MM-YYYY or DD/MM/YY even when directly followed by time/letters
+    FALLBACK_DATE_PATTERNS = [
         re.compile(r"(\b\d{1,2}[/-]\d{1,2}[/-](?:20\d{2}|19\d{2}|\d{2}))"),
-        # Match YYYY/MM/DD or YYYY-MM-DD
         re.compile(r"(\b(?:20\d{2}|19\d{2})[/-]\d{1,2}[/-]\d{1,2})"),
-        # Match DD Mon YYYY or DD-Mon-YY or DDMonYYYY (e.g., 07Mar2018, 22 MAR 18, 25-Apr-2017)
         re.compile(r"(\b\d{1,2}\s*[-/]?\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*[-/]?\s*(?:20\d{2}|19\d{2}|\d{2}))", re.IGNORECASE),
-        # Match Mon DD, YYYY
         re.compile(r"(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+(?:20\d{2}|19\d{2}|\d{2}))", re.IGNORECASE),
-        # Match DD.MM.YYYY or DD.MM.YY
         re.compile(r"(\b\d{1,2}[.]\d{1,2}[.](?:20\d{2}|19\d{2}|\d{2}))"),
-        # Match YYYY.MM.DD
         re.compile(r"(\b(?:20\d{2}|19\d{2})[.]\d{1,2}[.]\d{1,2})"),
     ]
 
@@ -68,14 +73,73 @@ class Spatial2DBoxParser(ParserPort):
     PRICE_PATTERN = re.compile(r"(?:^|[^\d])([0-9]{1,5}\s*[\.,:']\s*[0-9]{2})(?=[^\d]|$)")
     PRICE_HYPHEN_PATTERN = re.compile(r"(?:^|[^\d])([0-9]{1,5}\s*[-–]\s*[0-9]{2})(?=[^\d]|$)")
 
-    def __init__(self, y_tolerance_ratio: float = 0.45) -> None:
-        """Initialize Spatial2DBoxParser with clustering vertical tolerance ratio.
+    def __init__(
+        self,
+        lang_code: str = "en",
+        y_tolerance_ratio: float = 0.45,
+        config_dir: Optional[Union[str, Path]] = None,
+    ) -> None:
+        """Initialize Spatial2DBoxParser with language code, clustering tolerance, and config directory.
 
         Args:
+            lang_code: Two-letter ISO language code (e.g., 'en', 'it'). Defaults to 'en'.
             y_tolerance_ratio: Maximum vertical distance ratio between box centroids
                 to group them into the same physical line. Defaults to 0.45.
+            config_dir: Optional custom path to directory containing {lang_code}.json files.
         """
+        self.lang_code = lang_code.lower()
         self.y_tol = y_tolerance_ratio
+        self.config = self._load_config(config_dir)
+        self._compile_language_rules()
+
+    def _load_config(self, config_dir: Optional[Union[str, Path]]) -> Dict[str, Any]:
+        """Locate and load JSON language configuration file."""
+        possible_paths: List[Path] = []
+        if config_dir:
+            possible_paths.append(Path(config_dir) / f"{self.lang_code}.json")
+
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        possible_paths.append(root_dir / "config" / "langs" / f"{self.lang_code}.json")
+        possible_paths.append(Path.cwd() / "config" / "langs" / f"{self.lang_code}.json")
+
+        for path in possible_paths:
+            if path.is_file():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception:
+                    pass
+        return {}
+
+    def _compile_language_rules(self) -> None:
+        """Compile language anchors, tax filters, and keywords from loaded JSON config."""
+        total_anchors = self.config.get("total_anchors", [])
+        combined_anchors = list(dict.fromkeys(total_anchors + self.DEFAULT_TOTAL_ANCHORS))
+        escaped_anchors = [a if ("[" in a or "\\" in a) else re.escape(a) for a in combined_anchors]
+        self.total_keyword_regex = re.compile(
+            r"(?:" + "|".join(escaped_anchors) + r")",
+            re.IGNORECASE,
+        )
+
+        tax_kws = self.config.get("tax_keywords", []) + self.config.get("exclude_anchors", [])
+        self.tax_exclusion_keywords = list(dict.fromkeys(tax_kws + self.DEFAULT_TAX_KEYWORDS))
+
+        self.payment_negative_keywords = self.DEFAULT_PAYMENT_NEGATIVE
+
+        cash_kws = self.config.get("cash_keywords", [])
+        self.cash_keywords = list(dict.fromkeys(cash_kws + self.DEFAULT_CASH_KEYWORDS))
+
+        change_kws = self.config.get("change_keywords", [])
+        self.change_keywords = list(dict.fromkeys(change_kws + self.DEFAULT_CHANGE_KEYWORDS))
+
+        subtotal_kws = self.config.get("subtotal_keywords", [])
+        self.subtotal_keywords = list(dict.fromkeys(subtotal_kws + self.DEFAULT_SUBTOTAL_KEYWORDS))
+
+        self.tax_keywords = self.tax_exclusion_keywords
+
+        date_pats = self.config.get("date_patterns", [])
+        self.date_patterns = [re.compile(p) for p in date_pats] + self.FALLBACK_DATE_PATTERNS
+
 
     def _clean_price(self, price_str: str) -> float:
         """Clean and normalize monetary price string into standard float.
@@ -162,7 +226,7 @@ class Spatial2DBoxParser(ParserPort):
         Returns:
             True if row contains tax exclusion keywords and not inclusive modifiers.
         """
-        for tax_kw in self.TAX_EXCLUSION_KEYWORDS:
+        for tax_kw in self.tax_exclusion_keywords:
             if tax_kw in row_upper and not any(incl in row_upper for incl in ["INCL", "INCLUSIVE"]):
                 return True
         return False
@@ -188,13 +252,13 @@ class Spatial2DBoxParser(ParserPort):
                 continue
             val = prices[0]
 
-            if any(kw in row_text for kw in self.CHANGE_KEYWORDS):
+            if any(kw in row_text for kw in self.change_keywords):
                 change_amounts.append(val)
-            elif any(kw in row_text for kw in self.CASH_KEYWORDS) and not any(kw in row_text for kw in ["TOTAL", "SUBTOTAL"]):
+            elif any(kw in row_text for kw in self.cash_keywords) and not any(kw in row_text for kw in ["TOTAL", "SUBTOTAL"]):
                 cash_amounts.append(val)
-            elif any(kw in row_text for kw in self.SUBTOTAL_KEYWORDS):
+            elif any(kw in row_text for kw in self.subtotal_keywords):
                 subtotal_amounts.append(val)
-            elif any(kw in row_text for kw in self.TAX_KEYWORDS) and not any(kw in row_text for kw in ["INCL", "INCLUSIVE"]):
+            elif any(kw in row_text for kw in self.tax_keywords) and not any(kw in row_text for kw in ["INCL", "INCLUSIVE"]):
                 tax_amounts.append(val)
 
         return cash_amounts, change_amounts, subtotal_amounts, tax_amounts
@@ -236,8 +300,8 @@ class Spatial2DBoxParser(ParserPort):
         date = ""
         for row in rows:
             row_text = " ".join(item["text"] for item in row)
-            if re.search(r"(date|tarikh|time|inv\s*date|dated|dt)", row_text, re.IGNORECASE):
-                for pat in self.DATE_PATTERNS:
+            if re.search(r"(date|tarikh|time|inv\s*date|dated|dt|data)", row_text, re.IGNORECASE):
+                for pat in self.date_patterns:
                     m = pat.search(row_text)
                     if m:
                         date = m.group(1).strip()
@@ -247,7 +311,7 @@ class Spatial2DBoxParser(ParserPort):
 
         if not date:
             full_text = " ".join(item["text"] for row in rows for item in row)
-            for pat in self.DATE_PATTERNS:
+            for pat in self.date_patterns:
                 m = pat.search(full_text)
                 if m:
                     date = m.group(1).strip()
@@ -265,21 +329,21 @@ class Spatial2DBoxParser(ParserPort):
             rel_y = r_idx / max(total_rows, 1)
 
             is_tax = self._is_tax_row(row_upper)
-            is_total_anchor = bool(self.TOTAL_KEYWORD_REGEX.search(row_upper))
-            has_payment_negative = any(neg in row_upper for neg in self.PAYMENT_NEGATIVE_KEYWORDS)
+            is_total_anchor = bool(self.total_keyword_regex.search(row_upper))
+            has_payment_negative = any(neg in row_upper for neg in self.payment_negative_keywords)
 
             if is_total_anchor and not is_tax:
                 prices_in_row = self._extract_prices_from_row(row)
 
                 if prices_in_row:
                     score = 100.0 + (rel_y * 30.0)
-                    if any(term in row_upper for term in ["GRAND TOTAL", "NETT TOTAL", "NET TOTAL"]):
+                    if any(term in row_upper for term in ["GRAND TOTAL", "NETT TOTAL", "NET TOTAL", "TOTALE COMPLESSIVO", "TOTALE EURO"]):
                         score += 50.0
                     if any(term in row_upper for term in ["ROUNDED", "TOTAL ROUNDED"]):
                         score += 35.0
                     if any(term in row_upper for term in ["INCL", "INCLUSIVE"]):
                         score += 25.0
-                    if any(term in row_upper for term in ["AMOUNT DUE", "AMOUNT PAYABLE", "TOTAL PAYABLE"]):
+                    if any(term in row_upper for term in ["AMOUNT DUE", "AMOUNT PAYABLE", "TOTAL PAYABLE", "TOTALE DOVUTO", "IMPORTO DOVUTO"]):
                         score += 40.0
                     if has_payment_negative:
                         score -= 20.0

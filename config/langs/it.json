@@ -26,5 +26,29 @@
   ],
   "date_patterns": [
     "\\b(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})\\b"
+  ],
+  "cash_keywords": [
+    "CONTANTE",
+    "CONTANTI",
+    "PAGAMENTO CONTANTE",
+    "PAGAMENTO CONTANTI",
+    "CASH"
+  ],
+  "change_keywords": [
+    "RESTO",
+    "RESTO DOVUTO",
+    "CHANGE"
+  ],
+  "tax_keywords": [
+    "DI CUI IVA",
+    "IVA",
+    "IMPOSTA",
+    "ESENTE IVA"
+  ],
+  "subtotal_keywords": [
+    "SUBTOTALE",
+    "PARZIALE",
+    "IMPONIBILE",
+    "SUBTOTAL"
   ]
 }
