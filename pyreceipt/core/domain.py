@@ -16,9 +16,6 @@ class ExpenseCategory:
     Supports pre-defined default categories while allowing dynamic creation
     of new custom categories at runtime during transaction entry.
     Category names are automatically stripped of whitespace and capitalized.
-
-    Attributes:
-        name: The normalized string name of the expense category.
     """
 
     name: str
@@ -63,14 +60,11 @@ ExpenseCategory.OTHER = ExpenseCategory("OTHER")
 class Receipt:
     """Core domain entity representing a receipt transaction.
 
-    Attributes:
-        company: Name of the vendor or merchant.
-        date: Transaction date, represented either as a string or datetime object.
-        total: Total monetary value of the purchase.
-        category: ExpenseCategory value object assigned to this receipt.
+    Encapsulates vendor name, transaction date, total amount, and category.
     """
 
     company: str
     date: Union[str, datetime]
     total: float
     category: ExpenseCategory
+

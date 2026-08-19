@@ -44,7 +44,15 @@ class ParserPort(ABC):
 
     @abstractmethod
     def parse(self, ocr_input: Union[str, List[Dict[str, Any]]]) -> Receipt:
-        """Parse raw OCR text string or structured bounding boxes into a Receipt domain entity."""
+        """Parse raw OCR text string or structured bounding boxes into a Receipt domain entity.
+
+        Args:
+            ocr_input: Either raw multiline OCR text string or a list of word/line bounding box
+                dictionaries containing 'text' and 'box' coordinates [x0, y0, x1, y1].
+
+        Returns:
+            A populated :class:`pyreceipt.core.domain.Receipt` domain entity.
+        """
         pass
 
 
@@ -53,5 +61,13 @@ class StoragePort(ABC):
 
     @abstractmethod
     def save_receipt(self, receipt: Receipt) -> None:
-        """Persist a Receipt domain entity to storage."""
+        """Persist a Receipt domain entity to the storage backend.
+
+        Args:
+            receipt: The :class:`pyreceipt.core.domain.Receipt` entity to persist.
+
+        Raises:
+            IOError: If saving the receipt fails due to I/O or database constraints.
+        """
         pass
+

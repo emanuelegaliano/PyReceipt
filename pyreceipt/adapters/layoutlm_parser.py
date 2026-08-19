@@ -15,26 +15,43 @@ from pyreceipt.utils.profiler import monitor_performance
 
 
 class LayoutLMReceiptParser(ParserPort):
-    """LayoutLM Multi-Modal 2D Visual Document Understanding Parser."""
+    """LayoutLM Multi-Modal 2D Visual Document Understanding Parser.
+
+    Combines textual embeddings, 2D spatial layout coordinates, and visual image
+    features using a transformer Document Question Answering pipeline.
+
+    Attributes:
+        model_id (str): Hugging Face model repository identifier.
+        pipe: Transformers Document QA pipeline instance.
+    """
 
     def __init__(self, model_id: str = "impira/layoutlm-document-qa") -> None:
-        """Initialize LayoutLM pipeline once."""
+        """Initialize LayoutLM pipeline once.
+
+        Args:
+            model_id: Hugging Face model repository ID.
+        """
         from transformers import pipeline
 
         self.model_id = model_id
         self.pipe = pipeline("document-question-answering", model=model_id)
 
     def _clean_total(self, answer_str: str) -> float:
-        """Parse numerical total from textual answer."""
+        """Parse numerical total from textual QA answer.
+
+        Args:
+            answer_str: Raw text answer returned by LayoutLM Document QA.
+
+        Returns:
+            Cleaned float monetary value.
+        """
         if not answer_str:
             return 0.0
         clean = re.sub(r"[^\d.,]", "", answer_str).replace(" ", "").replace(",", ".")
-        # Handle trailing/leading dots
         clean = clean.strip(".")
         try:
             return float(clean)
         except ValueError:
-            # Search for first decimal match
             match = re.search(r"(\d+\.\d{2})", clean)
             if match:
                 return float(match.group(1))
@@ -42,7 +59,14 @@ class LayoutLMReceiptParser(ParserPort):
 
     @monitor_performance
     def parse_image(self, image_input: Union[str, Image.Image]) -> Receipt:
-        """Directly parse receipt image using LayoutLM 2D Document QA."""
+        """Directly parse receipt image using LayoutLM 2D Document QA.
+
+        Args:
+            image_input: File path string or PIL Image object of the receipt.
+
+        Returns:
+            Populated :class:`pyreceipt.core.domain.Receipt` domain entity.
+        """
         if isinstance(image_input, str):
             if not os.path.exists(image_input):
                 return Receipt(company="UNKNOWN", date="", total=0.0, category=ExpenseCategory.OTHER)
@@ -69,12 +93,18 @@ class LayoutLMReceiptParser(ParserPort):
             return Receipt(company="UNKNOWN", date="", total=0.0, category=ExpenseCategory.OTHER)
 
     def parse(self, ocr_input: Union[str, List[Dict[str, Any]]]) -> Receipt:
-        """Fallback when raw text or boxes are provided without image."""
-        # If string is a valid file path, call parse_image
+        """Parse input, forwarding to `parse_image` if path or falling back to Spatial2D.
+
+        Args:
+            ocr_input: Image file path string, raw text, or list of bounding boxes.
+
+        Returns:
+            Populated :class:`pyreceipt.core.domain.Receipt` domain entity.
+        """
         if isinstance(ocr_input, str) and os.path.exists(ocr_input):
             return self.parse_image(ocr_input)
 
-        # Otherwise fallback to geometric parser
         from pyreceipt.adapters.spatial_2d_parser import Spatial2DBoxParser
         fallback = Spatial2DBoxParser()
         return fallback.parse(ocr_input)
+

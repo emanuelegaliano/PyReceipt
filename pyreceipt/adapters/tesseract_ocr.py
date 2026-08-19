@@ -17,7 +17,16 @@ from pyreceipt.utils.profiler import monitor_performance
 
 
 class TesseractOCRAdapter(OCRPort):
-    """Concrete Tesseract OCR Adapter implementing OCRPort interface."""
+    """Concrete Tesseract OCR Adapter implementing OCRPort interface.
+
+    Applies a memory-optimized OpenCV Computer Vision preprocessing pipeline:
+    Auto-deskewing, adaptive resolution normalization, unsharp masking, and CLAHE.
+
+    Attributes:
+        lang (str): Tesseract language model identifier (e.g., 'eng', 'ita').
+        tessdata_dir (Optional[str]): Path to custom tessdata directory (e.g. tessdata_best).
+        config (str): Complete command-line configuration string for Tesseract CLI.
+    """
 
     def __init__(
         self,
@@ -25,7 +34,13 @@ class TesseractOCRAdapter(OCRPort):
         config: str = "--psm 4",
         tessdata_dir: Optional[str] = None,
     ) -> None:
-        """Initialize TesseractOCRAdapter with language code, PSM config, and tessdata path."""
+        """Initialize TesseractOCRAdapter with language code, PSM config, and tessdata path.
+
+        Args:
+            lang: ISO 639-2 language code (e.g., 'eng', 'ita'). Defaults to 'eng'.
+            config: Tesseract page segmentation mode and parameters. Defaults to '--psm 4'.
+            tessdata_dir: Optional path to custom traineddata folder.
+        """
         self.lang = lang
         self.tessdata_dir = self._resolve_tessdata_dir(tessdata_dir)
 
@@ -36,6 +51,14 @@ class TesseractOCRAdapter(OCRPort):
         self.config = full_config
 
     def _resolve_tessdata_dir(self, custom_dir: Optional[str]) -> Optional[str]:
+        """Resolve absolute path to tessdata folder if present.
+
+        Args:
+            custom_dir: User-specified directory path or None.
+
+        Returns:
+            Resolved absolute path string or None.
+        """
         if custom_dir and os.path.isdir(custom_dir):
             return os.path.abspath(custom_dir)
 
@@ -50,7 +73,14 @@ class TesseractOCRAdapter(OCRPort):
         return None
 
     def _deskew_image(self, gray: np.ndarray) -> np.ndarray:
-        """Detect text skew angle and rotate image to horizontal baseline."""
+        """Detect text skew angle and rotate image to horizontal baseline.
+
+        Args:
+            gray: Grayscale image matrix.
+
+        Returns:
+            Deskewed grayscale image matrix.
+        """
         try:
             _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
             coords = np.column_stack(np.where(thresh > 0))
@@ -75,7 +105,14 @@ class TesseractOCRAdapter(OCRPort):
         return gray
 
     def _unsharp_mask(self, gray: np.ndarray) -> np.ndarray:
-        """Sharpen faint thermal print using unsharp masking."""
+        """Sharpen faint thermal print using unsharp masking.
+
+        Args:
+            gray: Grayscale image matrix.
+
+        Returns:
+            Sharpened grayscale image matrix.
+        """
         try:
             gaussian = cv2.GaussianBlur(gray, (0, 0), 2.0)
             unsharp = cv2.addWeighted(gray, 1.4, gaussian, -0.4, 0)
@@ -84,6 +121,14 @@ class TesseractOCRAdapter(OCRPort):
             return gray
 
     def _preprocess_image(self, image_path: str) -> Optional[np.ndarray]:
+        """Preprocess receipt image with deskewing, scaling, unsharp masking, and CLAHE.
+
+        Args:
+            image_path: Path to the image file.
+
+        Returns:
+            Enhanced grayscale numpy array or None if reading fails.
+        """
         if not os.path.exists(image_path):
             return None
         img: Optional[np.ndarray] = cv2.imread(image_path)
@@ -120,7 +165,14 @@ class TesseractOCRAdapter(OCRPort):
 
     @monitor_performance
     def extract_text(self, image_path: str) -> str:
-        """Extract raw text from receipt image."""
+        """Extract raw text from receipt image.
+
+        Args:
+            image_path: Absolute or relative path to the image file.
+
+        Returns:
+            Extracted text string.
+        """
         try:
             enhanced_gray = self._preprocess_image(image_path)
             if enhanced_gray is None:
@@ -133,7 +185,20 @@ class TesseractOCRAdapter(OCRPort):
             return ""
 
     def extract_boxes(self, image_path: str) -> List[Dict[str, Any]]:
-        """Extract word-level bounding boxes with coordinates."""
+        """Extract word-level bounding boxes with coordinates and confidence.
+
+        Args:
+            image_path: Absolute or relative path to the image file.
+
+        Returns:
+            A list of dictionary objects formatted as::
+
+                {
+                    "text": str,
+                    "box": [x0, y0, x1, y1],
+                    "conf": float
+                }
+        """
         try:
             enhanced_gray = self._preprocess_image(image_path)
             if enhanced_gray is None:
@@ -163,4 +228,5 @@ class TesseractOCRAdapter(OCRPort):
             return boxes
         except Exception:
             return []
+
 

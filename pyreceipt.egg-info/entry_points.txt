@@ -1,2 +1,0 @@
-[console_scripts]
-pyreceipt-demo = demo_cli:main

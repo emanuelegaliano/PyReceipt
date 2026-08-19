@@ -14,7 +14,15 @@ from pyreceipt.utils.profiler import monitor_performance
 
 
 class Spatial2DBoxParser(ParserPort):
-    """Geometric 2D Bounding Box Receipt Parser with Arithmetic Verification."""
+    """Geometric 2D Bounding Box Receipt Parser with Arithmetic Verification.
+
+    Reconstructs reading order by clustering bounding boxes into physical horizontal
+    rows, applies fuzzy anchor matching, filters tax/settlement noise, and verifies
+    mathematical invariants (Cash - Change = Total).
+
+    Attributes:
+        y_tol (float): Vertical overlap tolerance ratio used to cluster boxes into physical lines.
+    """
 
     TOTAL_KEYWORD_REGEX = re.compile(
         r"(?:[TO0][O0][TAFLI1][A4][LI1]|JUMLAH|GRAND\s*TOTAL|NETT?\s*TOTAL|AMOUNT\s*DUE|AMOUNT\s*PAYABLE|BALANCE\s*DUE|TOTAL\s*ROUNDED|TOTAL\s*INCL|TOTAL\s*RM|TOTAL\s*AMOUNT|TOTAL\s*SALES|TOTAL\s*PAYABLE|TOTAL\s*BILL|RINGKASAN|TOTAL\s*PAID|TOTAL\s*PRICE)",
@@ -61,9 +69,23 @@ class Spatial2DBoxParser(ParserPort):
     PRICE_HYPHEN_PATTERN = re.compile(r"(?:^|[^\d])([0-9]{1,5}\s*[-–]\s*[0-9]{2})(?=[^\d]|$)")
 
     def __init__(self, y_tolerance_ratio: float = 0.45) -> None:
+        """Initialize Spatial2DBoxParser with clustering vertical tolerance ratio.
+
+        Args:
+            y_tolerance_ratio: Maximum vertical distance ratio between box centroids
+                to group them into the same physical line. Defaults to 0.45.
+        """
         self.y_tol = y_tolerance_ratio
 
     def _clean_price(self, price_str: str) -> float:
+        """Clean and normalize monetary price string into standard float.
+
+        Args:
+            price_str: Raw price substring extracted from text box.
+
+        Returns:
+            Normalized float monetary amount or 0.0.
+        """
         clean = price_str.replace(" ", "").replace(":", ".").replace("'", ".").replace(",", ".").replace("-", ".").replace("–", ".")
         clean = re.sub(r"[^\d.]", "", clean)
         try:
@@ -72,7 +94,14 @@ class Spatial2DBoxParser(ParserPort):
             return 0.0
 
     def _cluster_boxes_into_rows(self, boxes: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
-        """Group word boxes into horizontal 2D physical lines based on vertical overlap."""
+        """Group word bounding boxes into horizontal physical lines based on vertical overlap.
+
+        Args:
+            boxes: List of bounding box dictionaries with 'box' and 'text'.
+
+        Returns:
+            List of rows, where each row is a sorted list of boxes from left to right.
+        """
         if not boxes:
             return []
 
@@ -105,7 +134,14 @@ class Spatial2DBoxParser(ParserPort):
         return rows
 
     def _extract_prices_from_row(self, row: List[Dict[str, Any]]) -> List[float]:
-        """Extract valid prices from right to left in a row."""
+        """Extract valid prices from right to left in a row.
+
+        Args:
+            row: List of box dictionaries representing a single row.
+
+        Returns:
+            List of valid float prices found in the row.
+        """
         prices: List[float] = []
         for item in reversed(row):
             text = item["text"]
@@ -118,14 +154,28 @@ class Spatial2DBoxParser(ParserPort):
         return prices
 
     def _is_tax_row(self, row_upper: str) -> bool:
-        """Determine if a row represents tax/GST information rather than grand total."""
+        """Determine if a row represents tax/GST information rather than grand total.
+
+        Args:
+            row_upper: Uppercase concatenated text of the candidate row.
+
+        Returns:
+            True if row contains tax exclusion keywords and not inclusive modifiers.
+        """
         for tax_kw in self.TAX_EXCLUSION_KEYWORDS:
             if tax_kw in row_upper and not any(incl in row_upper for incl in ["INCL", "INCLUSIVE"]):
                 return True
         return False
 
     def _extract_context_amounts(self, rows: List[List[Dict[str, Any]]]) -> Tuple[List[float], List[float], List[float], List[float]]:
-        """Extract contextual amounts: cash, change, subtotal, and tax."""
+        """Extract contextual amounts: cash, change, subtotal, and tax.
+
+        Args:
+            rows: Clustered 2D rows.
+
+        Returns:
+            Tuple of (cash_amounts, change_amounts, subtotal_amounts, tax_amounts).
+        """
         cash_amounts: List[float] = []
         change_amounts: List[float] = []
         subtotal_amounts: List[float] = []
@@ -151,7 +201,16 @@ class Spatial2DBoxParser(ParserPort):
 
     @monitor_performance
     def parse(self, ocr_input: Union[str, List[Dict[str, Any]]]) -> Receipt:
-        """Parse structured bounding boxes or raw text using 2D geometric alignment and arithmetic verification."""
+        """Parse structured bounding boxes or raw text using 2D geometric alignment and arithmetic verification.
+
+        Args:
+            ocr_input: Multiline raw OCR text string or list of word bounding box dicts
+                containing 'text' and 'box' coordinates [x0, y0, x1, y1].
+
+        Returns:
+            Populated :class:`pyreceipt.core.domain.Receipt` domain entity with extracted
+            company, transaction date, total amount, and default category.
+        """
         if isinstance(ocr_input, str):
             lines = [l.strip() for l in ocr_input.splitlines() if l.strip()]
             boxes = [{"text": l, "box": [0, i * 20, 100, (i + 1) * 20], "conf": 1.0} for i, l in enumerate(lines)]
