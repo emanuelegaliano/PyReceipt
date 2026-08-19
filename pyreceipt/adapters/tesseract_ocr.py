@@ -49,26 +49,73 @@ class TesseractOCRAdapter(OCRPort):
 
         return None
 
+    def _deskew_image(self, gray: np.ndarray) -> np.ndarray:
+        """Detect text skew angle and rotate image to horizontal baseline."""
+        try:
+            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            coords = np.column_stack(np.where(thresh > 0))
+            if len(coords) < 50:
+                return gray
+            angle = cv2.minAreaRect(coords)[-1]
+            if angle < -45:
+                angle = -(90 + angle)
+            elif angle > 45:
+                angle = 90 - angle
+            else:
+                angle = -angle
+
+            if 0.5 < abs(angle) < 45.0:
+                h, w = gray.shape[:2]
+                center = (w // 2, h // 2)
+                m = cv2.getRotationMatrix2D(center, angle, 1.0)
+                rotated = cv2.warpAffine(gray, m, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                return rotated
+        except Exception:
+            pass
+        return gray
+
+    def _unsharp_mask(self, gray: np.ndarray) -> np.ndarray:
+        """Sharpen faint thermal print using unsharp masking."""
+        try:
+            gaussian = cv2.GaussianBlur(gray, (0, 0), 2.0)
+            unsharp = cv2.addWeighted(gray, 1.4, gaussian, -0.4, 0)
+            return unsharp
+        except Exception:
+            return gray
+
     def _preprocess_image(self, image_path: str) -> Optional[np.ndarray]:
         if not os.path.exists(image_path):
             return None
         img: Optional[np.ndarray] = cv2.imread(image_path)
         if img is None:
             return None
+
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        enhanced_gray = clahe.apply(gray)
-        height, width = enhanced_gray.shape[:2]
+
+        # 1. Deskew image to level text rows
+        gray = self._deskew_image(gray)
+
+        # 2. Adaptive resolution scaling (upscale low-res, downscale huge images)
+        height, width = gray.shape[:2]
         max_dim = max(height, width)
-        if max_dim > 1800:
-            scale = 1800.0 / max_dim
+        if max_dim < 1400:
+            scale = 1600.0 / max_dim
             new_width = int(width * scale)
             new_height = int(height * scale)
-            enhanced_gray = cv2.resize(
-                enhanced_gray,
-                (new_width, new_height),
-                interpolation=cv2.INTER_AREA,
-            )
+            gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+        elif max_dim > 2400:
+            scale = 2000.0 / max_dim
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+        # 3. Unsharp masking to accentuate thermal characters
+        gray = self._unsharp_mask(gray)
+
+        # 4. Contrast Limited Adaptive Histogram Equalization (CLAHE)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced_gray = clahe.apply(gray)
+
         return enhanced_gray
 
     @monitor_performance
@@ -116,3 +163,4 @@ class TesseractOCRAdapter(OCRPort):
             return boxes
         except Exception:
             return []
+

@@ -50,3 +50,19 @@ def test_tesseract_ocr_adapter_extracts_text_and_resizes(tmp_path):
     adapter = TesseractOCRAdapter()
     text = adapter.extract_text(img_path)
     assert isinstance(text, str)
+
+
+def test_tesseract_ocr_adapter_deskew_and_unsharp():
+    """Verify that _deskew_image and _unsharp_mask execute correctly on numpy matrices."""
+    adapter = TesseractOCRAdapter()
+    gray = np.ones((500, 500), dtype=np.uint8) * 255
+    cv2.putText(gray, "SAMPLE TEXT", (50, 250), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+
+    deskewed = adapter._deskew_image(gray)
+    assert isinstance(deskewed, np.ndarray)
+    assert deskewed.shape == gray.shape
+
+    unsharp = adapter._unsharp_mask(gray)
+    assert isinstance(unsharp, np.ndarray)
+    assert unsharp.shape == gray.shape
+

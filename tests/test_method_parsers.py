@@ -31,6 +31,58 @@ class TestMethodParsers(unittest.TestCase):
         self.assertEqual(receipt.date, "12/05/2020")
         self.assertEqual(receipt.company, "BOOK STORE")
 
+    def test_spatial_2d_box_parser_tax_deweighting(self) -> None:
+        """Verify that TAX TOTAL is ignored in favor of GRAND TOTAL."""
+        parser = Spatial2DBoxParser()
+        boxes = [
+            {"text": "GROCERY MART", "box": [50, 20, 200, 40], "conf": 0.9},
+            {"text": "Date: 14/02/2023", "box": [50, 50, 180, 70], "conf": 0.9},
+            {"text": "TAX TOTAL", "box": [50, 150, 150, 170], "conf": 0.9},
+            {"text": "0.57", "box": [450, 150, 500, 170], "conf": 0.9},
+            {"text": "GRAND TOTAL", "box": [50, 200, 180, 220], "conf": 0.9},
+            {"text": "10.00", "box": [450, 200, 520, 220], "conf": 0.9},
+        ]
+        receipt = parser.parse(boxes)
+        self.assertEqual(receipt.total, 10.00)
+
+    def test_spatial_2d_box_parser_arithmetic_cross_validation(self) -> None:
+        """Verify arithmetic cross-validation (Cash - Change == Total) resolves ambiguity."""
+        parser = Spatial2DBoxParser()
+        boxes = [
+            {"text": "RESTO CAFE", "box": [50, 20, 200, 40], "conf": 0.9},
+            {"text": "TOTAL", "box": [50, 180, 120, 200], "conf": 0.9},
+            {"text": "21.60", "box": [450, 180, 520, 200], "conf": 0.9},
+            {"text": "CASH", "box": [50, 220, 100, 240], "conf": 0.9},
+            {"text": "30.00", "box": [450, 220, 520, 240], "conf": 0.9},
+            {"text": "CHANGE", "box": [50, 260, 120, 280], "conf": 0.9},
+            {"text": "8.40", "box": [450, 260, 500, 280], "conf": 0.9},
+        ]
+        receipt = parser.parse(boxes)
+        self.assertEqual(receipt.total, 21.60)
+
+    def test_spatial_2d_box_parser_fuzzy_anchor(self) -> None:
+        """Verify fuzzy anchor matching catches OCR typos like T0TAL."""
+        parser = Spatial2DBoxParser()
+        boxes = [
+            {"text": "STORE", "box": [50, 20, 150, 40], "conf": 0.9},
+            {"text": "T0TAL", "box": [50, 150, 120, 170], "conf": 0.9},
+            {"text": "45.80", "box": [450, 150, 520, 170], "conf": 0.9},
+        ]
+        receipt = parser.parse(boxes)
+        self.assertEqual(receipt.total, 45.80)
+
+    def test_spatial_2d_box_parser_alphanumeric_date(self) -> None:
+        """Verify alphanumeric date formats (e.g. 25 MAR 2018)."""
+        parser = Spatial2DBoxParser()
+        boxes = [
+            {"text": "SUPERMARKET", "box": [50, 20, 200, 40], "conf": 0.9},
+            {"text": "Date: 25 MAR 2018", "box": [50, 50, 220, 70], "conf": 0.9},
+            {"text": "TOTAL", "box": [50, 150, 120, 170], "conf": 0.9},
+            {"text": "12.50", "box": [450, 150, 520, 170], "conf": 0.9},
+        ]
+        receipt = parser.parse(boxes)
+        self.assertEqual(receipt.date, "25 MAR 2018")
+
     @patch("transformers.pipeline")
     def test_layoutlm_parser_mocked(self, mock_pipe_fn) -> None:
         """Verify LayoutLM parser extraction logic."""
@@ -50,3 +102,4 @@ class TestMethodParsers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
